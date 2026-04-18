@@ -3,7 +3,7 @@
  * Handles communication between popup/content scripts and the backend API.
  */
 
-const DEFAULT_API_URL = "http://localhost:8000";
+const DEFAULT_API_URL = "https://review-guard-backend.onrender.com";
 
 async function getApiUrl() {
   try {

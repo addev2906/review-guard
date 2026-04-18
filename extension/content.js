@@ -17,12 +17,14 @@
       reviewContainer: '[data-hook*="review"], .review',
     },
     "flipkart": {
-      reviewSelector: '.t-ZTKy, .ZmyHeo, ._6K-7Co',
-      reviewContainer: '._27M-vq, .col._2wzgFH, ._1AtVbE .col, div[class*="review-card"]',
+      // Flipkart obfuscates classes constantly — use broad attribute-contains patterns
+      reviewSelector: '[class*="ZmyHeo"], [class*="_6K-7Co"], [class*="t-ZTKy"], [class*="qwjRop"], div[class] > div[class] > div[class] > div:not([class*="star"]):not([class*="rating"]) > p, div[class*="review"] p',
+      reviewContainer: 'div[class*="review-card"], div[class*="col"] > div[class], div[class*="_27M-vq"], div[class*="_1AtVbE"], div[class*="EKFha"]',
     },
     "yelp": {
-      reviewSelector: '[class*="comment"] p, .raw__09f24__T4Ezm',
-      reviewContainer: 'li:has([class*="comment"]), [class*="review__"], li[class*="margin-b"]',
+      // Yelp randomises classes — target structural patterns and comment paragraphs
+      reviewSelector: '[class*="comment"] p, [class*="review__"] p, p[class*="raw__"], [data-testid*="review"] p, span[class*="raw__"], [lang] p',
+      reviewContainer: 'li:has([class*="comment"]), li:has(p[class*="raw__"]), [class*="review__"], li[class*="margin-b"], [data-testid*="review"], ul > li:has(p)',
     },
     "tripadvisor": {
       reviewSelector: 'q.QewHA span, .yCeTE, .IRsPn',
@@ -52,7 +54,12 @@
       '[class*="review_body"]',
       '[class*="reviewBody"]',
       '[class*="comment-text"]',
-      '[class*="comment-body"]'
+      '[class*="comment-body"]',
+      // Flipkart & Yelp patterns
+      '[data-testid*="review"] p',
+      'p[class*="raw__"]',
+      'span[class*="raw__"]',
+      '[class*="comment__"] p',
     ];
 
     // Collect all elements that match any generic selector
