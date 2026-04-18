@@ -1,0 +1,10 @@
+pandas
+scikit-learn
+matplotlib
+seaborn
+joblib
+nbformat
+transformers
+torch
+accelerate
+protobuf

@@ -1,0 +1,178 @@
+/* ── ReviewGuard — Injected Badge Styles ─────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+.rg-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  margin: 6px 0;
+  border-radius: 20px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: default;
+  z-index: 9999;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: rgBadgeFadeIn 0.4s ease-out;
+}
+
+.rg-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes rgBadgeFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Badge variants ──────────────────────────────────────────────────────── */
+
+.rg-badge--genuine {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.rg-badge--fake {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  color: #991b1b;
+  border: 1px solid #f87171;
+}
+
+.rg-badge--uncertain {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 1px solid #fbbf24;
+}
+
+.rg-badge__icon {
+  font-size: 14px;
+}
+
+.rg-badge__label {
+  letter-spacing: 0.02em;
+}
+
+.rg-badge__pct {
+  opacity: 0.7;
+  font-weight: 500;
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────────── */
+
+.rg-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 280px;
+  max-width: 360px;
+  padding: 14px 16px;
+  background: rgba(15, 15, 25, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  font-weight: 400;
+  color: #e2e8f0;
+  animation: rgTooltipFadeIn 0.2s ease-out;
+}
+
+.rg-badge:hover .rg-tooltip {
+  display: block;
+}
+
+@keyframes rgTooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rg-tooltip__title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+
+.rg-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rg-tooltip__row:last-of-type {
+  border-bottom: none;
+}
+
+.rg-tooltip__row span:first-child {
+  color: #94a3b8;
+}
+
+.rg-tooltip__row strong {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+.rg-tooltip__flags {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.rg-tooltip__flags > span:first-child {
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.rg-tooltip__flag {
+  display: inline-block;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  margin: 2px 4px 2px 0;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.rg-tooltip__terms {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.rg-tooltip__terms > span:first-child {
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.rg-tooltip__term-list {
+  color: #cbd5e1;
+  font-size: 10px;
+  line-height: 1.5;
+}

@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import nbformat as nbf
+
+
+ROOT = Path(__file__).resolve().parent
+NOTEBOOK_PATH = ROOT / "fake_review_detection_improved.ipynb"
+
+
+def main() -> None:
+    nb = nbf.v4.new_notebook()
+    cells = []
+
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "# Fake Review Detection\n"
+            "\n"
+            "This notebook is a cleaned-up and reproducible version of the original project. "
+            "It keeps the strongest modeling approach, removes unnecessary heavy dependencies, "
+            "and presents the workflow in a form that is easier to explain in an ML project review. "
+            "It also includes an optional `Qwen/Qwen2.5-1.5B-Instruct` comparison for custom reviews."
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## Why this version is stronger\n"
+            "\n"
+            "- Uses a single, high-performing text pipeline instead of mixing in weaker components\n"
+            "- Adds a proper train/validation/test split\n"
+            "- Saves metrics and charts for reporting\n"
+            "- Produces a reusable model for future predictions\n"
+            "- Lets you compare the ML prediction with `Qwen/Qwen2.5-1.5B-Instruct`"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "from pathlib import Path\n"
+            "import json\n"
+            "\n"
+            "import joblib\n"
+            "import matplotlib.pyplot as plt\n"
+            "import pandas as pd\n"
+            "import seaborn as sns\n"
+            "from sklearn.feature_extraction.text import TfidfVectorizer\n"
+            "from sklearn.linear_model import LogisticRegression\n"
+            "from sklearn.metrics import (\n"
+            "    ConfusionMatrixDisplay,\n"
+            "    accuracy_score,\n"
+            "    classification_report,\n"
+            "    f1_score,\n"
+            "    roc_auc_score,\n"
+            "    roc_curve,\n"
+            ")\n"
+            "from sklearn.model_selection import train_test_split\n"
+            "from sklearn.pipeline import Pipeline\n"
+            "\n"
+            "ROOT = Path.cwd()\n"
+            "DATA_PATH = ROOT / 'fake_reviews_dataset.csv'\n"
+            "MODEL_DIR = ROOT / 'models'\n"
+            "OUTPUT_DIR = ROOT / 'outputs'\n"
+            "MODEL_DIR.mkdir(exist_ok=True)\n"
+            "OUTPUT_DIR.mkdir(exist_ok=True)\n"
+            "sns.set_theme(style='whitegrid')"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "df = pd.read_csv(DATA_PATH)\n"
+            "df.columns = [col.strip().lower().replace(' ', '_') for col in df.columns]\n"
+            "df = df.dropna(subset=['text_', 'label']).copy()\n"
+            "df['text_'] = df['text_'].astype(str).str.strip()\n"
+            "df = df[df['text_'] != ''].copy()\n"
+            "df['target'] = df['label'].astype(str).str.strip().map({'CG': 1, 'OR': 0})\n"
+            "df = df.dropna(subset=['target']).copy()\n"
+            "df['target'] = df['target'].astype(int)\n"
+            "df.head()"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "summary = pd.DataFrame({\n"
+            "    'rows': [len(df)],\n"
+            "    'unique_categories': [df['category'].nunique()],\n"
+            "    'avg_review_length': [round(df['text_'].str.len().mean(), 2)],\n"
+            "    'fake_count': [int(df['target'].sum())],\n"
+            "    'genuine_count': [int((1 - df['target']).sum())],\n"
+            "})\n"
+            "summary"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "fig, axes = plt.subplots(1, 2, figsize=(12, 4))\n"
+            "df['label'].value_counts().plot(kind='bar', ax=axes[0], color=['#5B8FF9', '#61DDAA'])\n"
+            "axes[0].set_title('Label Distribution')\n"
+            "axes[0].set_xlabel('Label')\n"
+            "axes[0].set_ylabel('Count')\n"
+            "\n"
+            "df['text_'].str.len().plot(kind='hist', bins=40, ax=axes[1], color='#F6BD16')\n"
+            "axes[1].set_title('Review Length Distribution')\n"
+            "axes[1].set_xlabel('Characters')\n"
+            "plt.tight_layout()"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "X = df['text_']\n"
+            "y = df['target']\n"
+            "\n"
+            "X_train_val, X_test, y_train_val, y_test = train_test_split(\n"
+            "    X, y, test_size=0.15, random_state=42, stratify=y\n"
+            ")\n"
+            "X_train, X_val, y_train, y_val = train_test_split(\n"
+            "    X_train_val, y_train_val, test_size=0.176, random_state=42, stratify=y_train_val\n"
+            ")\n"
+            "\n"
+            "print(f'Train size: {len(X_train):,}')\n"
+            "print(f'Validation size: {len(X_val):,}')\n"
+            "print(f'Test size: {len(X_test):,}')"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "model = Pipeline([\n"
+            "    ('tfidf', TfidfVectorizer(\n"
+            "        ngram_range=(1, 2),\n"
+            "        max_features=8000,\n"
+            "        min_df=3,\n"
+            "        sublinear_tf=True,\n"
+            "    )),\n"
+            "    ('clf', LogisticRegression(max_iter=1000, random_state=42)),\n"
+            "])\n"
+            "\n"
+            "model.fit(X_train, y_train)\n"
+            "val_pred = model.predict(X_val)\n"
+            "val_score = model.predict_proba(X_val)[:, 1]\n"
+            "test_pred = model.predict(X_test)\n"
+            "test_score = model.predict_proba(X_test)[:, 1]\n"
+            "\n"
+            "metrics = {\n"
+            "    'validation_accuracy': round(accuracy_score(y_val, val_pred), 4),\n"
+            "    'validation_f1': round(f1_score(y_val, val_pred), 4),\n"
+            "    'validation_auc': round(roc_auc_score(y_val, val_score), 4),\n"
+            "    'test_accuracy': round(accuracy_score(y_test, test_pred), 4),\n"
+            "    'test_f1': round(f1_score(y_test, test_pred), 4),\n"
+            "    'test_auc': round(roc_auc_score(y_test, test_score), 4),\n"
+            "}\n"
+            "metrics"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "print(classification_report(\n"
+            "    y_test,\n"
+            "    test_pred,\n"
+            "    target_names=['Original / Genuine', 'Computer-Generated / Fake'],\n"
+            "    digits=4,\n"
+            "))"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "fig, axes = plt.subplots(1, 2, figsize=(12, 5))\n"
+            "\n"
+            "ConfusionMatrixDisplay.from_predictions(\n"
+            "    y_test,\n"
+            "    test_pred,\n"
+            "    display_labels=['Original / Genuine', 'Computer-Generated / Fake'],\n"
+            "    cmap='Blues',\n"
+            "    colorbar=False,\n"
+            "    ax=axes[0],\n"
+            ")\n"
+            "axes[0].set_title('Confusion Matrix')\n"
+            "\n"
+            "fpr, tpr, _ = roc_curve(y_test, test_score)\n"
+            "axes[1].plot(fpr, tpr, linewidth=2)\n"
+            "axes[1].plot([0, 1], [0, 1], linestyle='--', color='gray')\n"
+            "axes[1].set_title(f'ROC Curve (AUC = {roc_auc_score(y_test, test_score):.4f})')\n"
+            "axes[1].set_xlabel('False Positive Rate')\n"
+            "axes[1].set_ylabel('True Positive Rate')\n"
+            "\n"
+            "plt.tight_layout()"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "joblib.dump(model, MODEL_DIR / 'fake_review_detector.joblib')\n"
+            "with open(OUTPUT_DIR / 'metrics.json', 'w', encoding='utf-8') as f:\n"
+            "    json.dump(metrics, f, indent=2)\n"
+            "print('Saved model and metrics.')"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "examples = [\n"
+            "    'BEST PRODUCT EVER!!! AMAZING QUALITY!!! BUY NOW!!!',\n"
+            "    'The item arrived in two days and matches the photos. The zipper feels solid.',\n"
+            "    'Good product. Recommended.',\n"
+            "]\n"
+            "\n"
+            "for text in examples:\n"
+            "    probability = model.predict_proba([text])[0, 1]\n"
+            "    if probability >= 0.6:\n"
+            "        label = 'Likely computer-generated / fake'\n"
+            "    elif probability <= 0.4:\n"
+            "        label = 'Likely original / genuine'\n"
+            "    else:\n"
+            "        label = 'Borderline / uncertain'\n"
+            "    print(f'\\nText: {text}')\n"
+            "    print(f'Fake probability: {probability:.4f}')\n"
+            "    print(f'Prediction: {label}')"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## Optional LLM comparison\n"
+            "\n"
+            "For a custom review, you can also compare the saved ML model with `Qwen/Qwen2.5-1.5B-Instruct`. "
+            "The command below prints both results side by side.\n"
+            "\n"
+            "```powershell\n"
+            "python predict_review.py --use-llm --text \"BEST PRODUCT EVER!!! AMAZING QUALITY!!! BUY NOW!!!\"\n"
+            "```"
+        )
+    )
+
+    nb["cells"] = cells
+    nb["metadata"] = {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3",
+        },
+        "language_info": {"name": "python", "version": "3.13"},
+    }
+
+    with NOTEBOOK_PATH.open("w", encoding="utf-8") as f:
+        nbf.write(nb, f)
+
+    print(f"Notebook written to {NOTEBOOK_PATH.name}")
+
+
+if __name__ == "__main__":
+    main()

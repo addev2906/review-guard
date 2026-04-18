@@ -1,0 +1,33 @@
+{
+  "review_text": "The product is great. it is cheap, easy to use and helps in daily chores.",
+  "ml_model": {
+    "label": "Likely original / genuine",
+    "fake_probability": 0.2767,
+    "confidence_band": "moderate confidence",
+    "top_terms": [
+      "cheap (-0.539)",
+      "is great (+0.533)",
+      "in (-0.439)",
+      "helps (-0.389)",
+      "to (-0.351)",
+      "daily (-0.275)",
+      "to use (+0.269)",
+      "and (-0.256)"
+    ],
+    "flags": []
+  },
+  "llm_model": {
+    "label": "Likely original / genuine",
+    "fake_probability": 0.05,
+    "confidence_band": "high confidence",
+    "reason": "Detailed positive feedback without any suspicious elements.",
+    "raw_output": "{\"verdict\":\"GENUINE\",\"confidence\":0.95,\"reason\":\"Detailed positive feedback without any suspicious elements.\"}",
+    "model_name": "Qwen/Qwen2.5-1.5B-Instruct"
+  },
+  "comparison": {
+    "agreement": true,
+    "probability_gap": 0.2267,
+    "final_label": "Likely original / genuine",
+    "summary": "Both models point in the same direction, but with different confidence."
+  }
+}
