@@ -7,15 +7,18 @@ const DEFAULT_API_URL = "http://localhost:8000";
 
 async function getApiUrl() {
   try {
-    const data = await chrome.storage.local.get("apiUrl");
-    return data.apiUrl || DEFAULT_API_URL;
+    const data = await chrome.storage.local.get(["apiUrl", "nvidiaKey"]);
+    return {
+      apiUrl: data.apiUrl || DEFAULT_API_URL,
+      nvidiaKey: data.nvidiaKey || ""
+    };
   } catch {
-    return DEFAULT_API_URL;
+    return { apiUrl: DEFAULT_API_URL, nvidiaKey: "" };
   }
 }
 
 async function checkHealth() {
-  const apiUrl = await getApiUrl();
+  const { apiUrl } = await getApiUrl();
   try {
     const res = await fetch(`${apiUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { connected: false };
@@ -27,7 +30,7 @@ async function checkHealth() {
 }
 
 async function predictBatch(reviews) {
-  const apiUrl = await getApiUrl();
+  const { apiUrl } = await getApiUrl();
   const res = await fetch(`${apiUrl}/api/predict/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,7 +45,7 @@ async function predictBatch(reviews) {
 }
 
 async function predictSingle(text) {
-  const apiUrl = await getApiUrl();
+  const { apiUrl } = await getApiUrl();
   const res = await fetch(`${apiUrl}/api/predict`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,6 +55,22 @@ async function predictSingle(text) {
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`API error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+async function explainReview(text, verdict) {
+  const { apiUrl, nvidiaKey } = await getApiUrl();
+  const res = await fetch(`${apiUrl}/api/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_text: text, verdict: verdict, nvidia_key: nvidiaKey }),
+    signal: AbortSignal.timeout(20000), // NVIDIA API might be slow
+  });
+  if (!res.ok) {
+    let err = await res.text();
+    try { err = JSON.parse(err).detail || err; } catch {}
+    throw new Error(`Explain API Error: ${err}`);
   }
   return res.json();
 }
@@ -66,6 +85,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case "predict":
           return await predictSingle(message.text);
+
+        case "explain":
+          return await explainReview(message.text, message.verdict);
 
         case "predictBatch": {
           // Split into chunks of 50

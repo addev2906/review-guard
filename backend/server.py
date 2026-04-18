@@ -14,9 +14,15 @@ from typing import Any
 
 import joblib
 import pandas as pd
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from openai import OpenAI
+
+# Load default .env file in the backend
+load_dotenv()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent / "ML Project 2026"
@@ -144,6 +150,14 @@ class BatchPredictRequest(BaseModel):
 class BatchPredictResponse(BaseModel):
     results: list[PredictResponse]
 
+class ExplainRequest(BaseModel):
+    review_text: str
+    verdict: str
+    nvidia_key: str | None = None
+
+class ExplainResponse(BaseModel):
+    explanation: str
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -179,6 +193,61 @@ def predict_batch(req: BatchPredictRequest) -> BatchPredictResponse:
         raise HTTPException(503, "Model is not loaded yet.")
     results = [PredictResponse(**predict_single(t)) for t in req.reviews]
     return BatchPredictResponse(results=results)
+
+@app.post("/api/explain", response_model=ExplainResponse)
+def explain_review(req: ExplainRequest) -> ExplainResponse:
+    # First try token from the request (extension), then from .env
+    token = req.nvidia_key or os.environ.get("NVIDIA_API_KEY")
+    if not token:
+        raise HTTPException(400, "NVIDIA API Key is missing. Add NVIDIA_API_KEY=... to your backend/.env file.")
+        
+    try:
+        client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=token
+        )
+
+        completion = client.chat.completions.create(
+            model="nvidia/nemotron-3-super-120b-a12b",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": f"You are an expert fraud analyst. Provide a short, concise explanation on why the following review is considered {req.verdict.upper()}. If FAKE, mention lack of specifics, vague language, repetitive praise, etc. If GENUINE, mention authentic details, balanced tone, etc."
+                },
+                {
+                    "role": "user",
+                    "content": f"Our ML model has classified this review as: {req.verdict.upper()}\\n\\nReview text: '{req.review_text}'"
+                }
+            ],
+            temperature=1,
+            top_p=0.95,
+            max_tokens=1024,
+            extra_body={"chat_template_kwargs": {"enable_thinking": True}, "reasoning_budget": 1024},
+            stream=True
+        )
+
+        full_response = ""
+        for chunk in completion:
+            if not chunk.choices:
+                continue
+            
+            # Extract content answer
+            if getattr(chunk.choices[0].delta, "content", None) is not None:
+                full_response += chunk.choices[0].delta.content
+
+        return ExplainResponse(explanation=full_response.strip())
+
+    except Exception as e:
+        status_code = 500
+        detail = f"NVIDIA API Error: {str(e)}"
+        
+        # Check if it resembles an unauthorized error
+        if "401" in str(e):
+            status_code = 401
+            detail = "Invalid NVIDIA API Key."
+            
+        raise HTTPException(status_code, detail)
+
 
 
 # ── Run with: uvicorn server:app --reload ────────────────────────────────────

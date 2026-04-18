@@ -402,6 +402,76 @@ details[open] .settings__toggle svg {
   color: var(--text-secondary);
 }
 
+/* ── Jump Navigation ─────────────────────────────────────────────────────── */
+
+.jump-nav {
+  background: var(--red-bg);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  animation: rgBadgeFadeIn 0.3s ease-out;
+}
+
+@keyframes rgBadgeFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.jump-nav__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  margin-bottom: 10px;
+}
+
+.jump-nav__header svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.jump-nav__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.jump-nav__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 50%;
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--red);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.jump-nav__btn:hover {
+  background: rgba(248, 113, 113, 0.22);
+  border-color: rgba(248, 113, 113, 0.4);
+  transform: scale(1.08);
+}
+
+.jump-nav__btn:active {
+  transform: scale(0.95);
+}
+
+.jump-nav__counter {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 50px;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
 .footer {

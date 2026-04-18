@@ -3,3 +3,6 @@ uvicorn[standard]
 joblib
 scikit-learn
 pandas
+requests
+python-dotenv
+openai

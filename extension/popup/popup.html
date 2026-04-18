@@ -77,6 +77,31 @@
       <span id="btnScanLabel">Scan Reviews</span>
     </button>
 
+    <!-- Jump to Fake Navigation -->
+    <div class="jump-nav" id="jumpNav" style="display: none;">
+      <div class="jump-nav__header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span>Navigate Fake Reviews</span>
+      </div>
+      <div class="jump-nav__controls">
+        <button class="jump-nav__btn" id="btnPrev" title="Previous fake review">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="jump-nav__counter" id="jumpCounter">0 / 0</span>
+        <button class="jump-nav__btn" id="btnNext" title="Next fake review">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <!-- Feedback / errors -->
     <div class="message" id="message" style="display: none;"></div>
 
@@ -112,7 +137,15 @@
           placeholder="http://localhost:8000"
           spellcheck="false"
         />
-        <button class="btn-save" id="btnSave">Save</button>
+        <label class="settings__label" for="nvidiaKeyInput" style="margin-top: 10px;">NVIDIA API Key</label>
+        <input
+          class="settings__input"
+          id="nvidiaKeyInput"
+          type="password"
+          placeholder="nvapi-..."
+          spellcheck="false"
+        />
+        <button class="btn-save" id="btnSave" style="margin-top: 16px;">Save Settings</button>
         <div class="settings__hint">
           Model accuracy: <strong id="modelAccuracy">—</strong>
         </div>

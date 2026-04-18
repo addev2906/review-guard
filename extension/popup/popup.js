@@ -19,9 +19,18 @@ const DOM = {
   trustFill:    $("#trustFill"),
   message:      $("#message"),
   apiUrlInput:  $("#apiUrlInput"),
+  nvidiaKeyInput: $("#nvidiaKeyInput"),
   btnSave:      $("#btnSave"),
   modelAccuracy:$("#modelAccuracy"),
+  // Jump navigation
+  jumpNav:      $("#jumpNav"),
+  jumpCounter:  $("#jumpCounter"),
+  btnPrev:      $("#btnPrev"),
+  btnNext:      $("#btnNext"),
 };
+
+let fakeCount = 0;
+let currentFakeIndex = -1;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -54,10 +63,19 @@ function updateStats(stats) {
     const trust = Math.round((stats.genuine / stats.scanned) * 100);
     DOM.scoreBarWrap.style.display = "block";
     DOM.trustPct.textContent = `${trust}%`;
-    // Small delay so the animation plays
     requestAnimationFrame(() => {
       DOM.trustFill.style.width = `${trust}%`;
     });
+  }
+
+  // Show jump nav if fakes found
+  fakeCount = stats.fake || 0;
+  if (fakeCount > 0) {
+    currentFakeIndex = -1;
+    DOM.jumpNav.style.display = "block";
+    DOM.jumpCounter.textContent = `0 / ${fakeCount}`;
+  } else {
+    DOM.jumpNav.style.display = "none";
   }
 }
 
@@ -73,13 +91,37 @@ function setScanning(active) {
   }
 }
 
+// ── Jump Navigation ─────────────────────────────────────────────────────────
+
+function jumpToFake(direction) {
+  if (fakeCount === 0) return;
+
+  if (direction === "next") {
+    currentFakeIndex = (currentFakeIndex + 1) % fakeCount;
+  } else {
+    currentFakeIndex = (currentFakeIndex - 1 + fakeCount) % fakeCount;
+  }
+
+  DOM.jumpCounter.textContent = `${currentFakeIndex + 1} / ${fakeCount}`;
+
+  // Send message to content script to scroll to the fake review
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (!tab?.id) return;
+    chrome.tabs.sendMessage(tab.id, {
+      action: "jumpToFake",
+      index: currentFakeIndex,
+    });
+  });
+}
+
 // ── Init ────────────────────────────────────────────────────────────────────
 
 async function init() {
   // Load saved API URL
   try {
-    const data = await chrome.storage.local.get("apiUrl");
+    const data = await chrome.storage.local.get(["apiUrl", "nvidiaKey"]);
     if (data.apiUrl) DOM.apiUrlInput.value = data.apiUrl;
+    if (data.nvidiaKey) DOM.nvidiaKeyInput.value = data.nvidiaKey;
   } catch { /* ignore */ }
 
   // Check health
@@ -101,6 +143,7 @@ async function init() {
 DOM.btnScan.addEventListener("click", () => {
   setScanning(true);
   DOM.message.style.display = "none";
+  DOM.jumpNav.style.display = "none";
 
   chrome.runtime.sendMessage({ action: "scanPage" }, (resp) => {
     setScanning(false);
@@ -120,16 +163,20 @@ DOM.btnScan.addEventListener("click", () => {
 
     updateStats(resp);
     const msg = resp.fake > 0
-      ? `⚠ Found ${resp.fake} potentially fake review${resp.fake > 1 ? "s" : ""}!`
+      ? `⚠ Found ${resp.fake} potentially fake review${resp.fake > 1 ? "s" : ""}! Use the arrows below to jump to each one.`
       : `✓ All ${resp.scanned} reviews look genuine.`;
     showMessage(msg, resp.fake > 0 ? "error" : "success");
   });
 });
 
+DOM.btnPrev.addEventListener("click", () => jumpToFake("prev"));
+DOM.btnNext.addEventListener("click", () => jumpToFake("next"));
+
 DOM.btnSave.addEventListener("click", async () => {
   const url = DOM.apiUrlInput.value.trim().replace(/\/+$/, "");
+  const token = DOM.nvidiaKeyInput.value.trim();
   if (!url) return;
-  await chrome.storage.local.set({ apiUrl: url });
+  await chrome.storage.local.set({ apiUrl: url, nvidiaKey: token });
   showMessage("Settings saved. Rechecking connection…", "info");
   setTimeout(init, 500);
 });
