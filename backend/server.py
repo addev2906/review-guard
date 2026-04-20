@@ -36,21 +36,33 @@ PROMO_PATTERN = re.compile(
 )
 
 # ── Model loading ────────────────────────────────────────────────────────────
-model = None
+model_artifact: dict[str, Any] | None = None
+
+
+def unpack_model_artifact(raw: Any) -> dict[str, Any]:
+    """Handle both legacy (raw pipeline) and v3 (dict) artifacts."""
+    if isinstance(raw, dict) and "models" in raw:
+        return raw
+    return {
+        "format_version": 1,
+        "selected_model_name": "tfidf_logreg",
+        "models": {"tfidf_logreg": raw},
+        "ensembles": {},
+    }
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model
+    global model_artifact
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
             f"Model not found at {MODEL_PATH}. "
             "Run train_model.py first."
         )
-    model = joblib.load(MODEL_PATH)
+    model_artifact = unpack_model_artifact(joblib.load(MODEL_PATH))
     print(f"✓ Model loaded from {MODEL_PATH}")
     yield
-    model = None
+    model_artifact = None
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
@@ -91,13 +103,18 @@ def explain_text(mdl, text: str, top_n: int = 8) -> list[str]:
     vectorizer = mdl.named_steps["tfidf"]
     classifier = mdl.named_steps["clf"]
     features = vectorizer.transform([text])
-    coefs = classifier.coef_[0]
     nz = features.nonzero()[1]
     if len(nz) == 0:
         return []
+    if hasattr(classifier, "coef_"):
+        weights = classifier.coef_[0]
+    elif hasattr(classifier, "feature_importances_"):
+        weights = classifier.feature_importances_
+    else:
+        return []
     names = vectorizer.get_feature_names_out()
     scored = sorted(
-        ((names[i], float(features[0, i] * coefs[i])) for i in nz),
+        ((names[i], float(features[0, i] * weights[i])) for i in nz),
         key=lambda item: abs(item[1]),
         reverse=True,
     )
@@ -120,12 +137,28 @@ def suspicious_flags(text: str) -> list[str]:
 
 
 def predict_single(text: str) -> dict[str, Any]:
-    probability = float(model.predict_proba(pd.Series([text]))[0, 1])
+    models = model_artifact["models"]
+    selected = model_artifact.get("selected_model_name", "tfidf_logreg")
+    ensembles = model_artifact.get("ensembles", {})
+    ensemble_cfg = ensembles.get(selected, {})
+
+    if ensemble_cfg.get("enabled"):
+        weights = ensemble_cfg.get("weights", {})
+        probability = sum(
+            float(weights.get(name, 0)) * float(models[name].predict_proba(pd.Series([text]))[0, 1])
+            for name in ensemble_cfg.get("base_models", []) if name in models
+        )
+        explanation_model = models.get("tfidf_logreg")
+    else:
+        pipeline = models.get(selected) or models["tfidf_logreg"]
+        probability = float(pipeline.predict_proba(pd.Series([text]))[0, 1])
+        explanation_model = pipeline
+
     return {
         "label": human_label(probability),
         "fake_probability": round(probability, 4),
         "confidence_band": confidence_band(probability),
-        "top_terms": explain_text(model, text),
+        "top_terms": explain_text(explanation_model, text) if explanation_model else [],
         "flags": suspicious_flags(text),
     }
 
@@ -171,17 +204,22 @@ def health_check() -> HealthResponse:
     accuracy = None
     if METRICS_PATH.exists():
         with METRICS_PATH.open() as f:
-            accuracy = json.load(f).get("test_accuracy")
+            metrics = json.load(f)
+            if "test_accuracy" in metrics:
+                accuracy = metrics["test_accuracy"]
+            elif "models" in metrics:
+                sel = metrics.get("selected_model", "tfidf_logreg")
+                accuracy = metrics["models"].get(sel, {}).get("test", {}).get("accuracy")
     return HealthResponse(
         status="ok",
-        model_loaded=model is not None,
+        model_loaded=model_artifact is not None,
         model_accuracy=accuracy,
     )
 
 
 @app.post("/api/predict", response_model=PredictResponse)
 def predict(req: PredictRequest) -> PredictResponse:
-    if model is None:
+    if model_artifact is None:
         raise HTTPException(503, "Model is not loaded yet.")
     result = predict_single(req.text)
     return PredictResponse(**result)
@@ -189,7 +227,7 @@ def predict(req: PredictRequest) -> PredictResponse:
 
 @app.post("/api/predict/batch", response_model=BatchPredictResponse)
 def predict_batch(req: BatchPredictRequest) -> BatchPredictResponse:
-    if model is None:
+    if model_artifact is None:
         raise HTTPException(503, "Model is not loaded yet.")
     results = [PredictResponse(**predict_single(t)) for t in req.reviews]
     return BatchPredictResponse(results=results)

@@ -4,7 +4,9 @@ matplotlib
 seaborn
 joblib
 nbformat
+xgboost
 transformers
 torch
 accelerate
 protobuf
+huggingface_hub

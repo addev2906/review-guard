@@ -16,10 +16,17 @@ ROOT = Path(__file__).resolve().parent
 MODEL_PATH = ROOT / "models" / "fake_review_detector.joblib"
 OUTPUT_DIR = ROOT / "outputs"
 DEFAULT_LLM_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
+LLM_OVERRIDE_GAP = 0.4
 PROMO_PATTERN = re.compile(
     r"\b(best|amazing|perfect|must buy|buy now|highly recommend|life[- ]changing)\b",
     re.IGNORECASE,
 )
+MODEL_LABELS = {
+    "tfidf_logreg": "TF-IDF + Logistic Regression",
+    "tfidf_xgboost": "TF-IDF + XGBoost",
+    "weighted_ensemble_fixed": "Weighted Ensemble Fusion (0.60 XGBoost + 0.40 LogReg)",
+    "weighted_ensemble_optimized": "Weighted Ensemble Fusion (Validation-Optimized)",
+}
 
 
 def confidence_band(probability: float) -> str:
@@ -38,18 +45,35 @@ def human_label(probability: float) -> str:
     return "Borderline / uncertain"
 
 
+def unpack_model_artifact(model_artifact: Any) -> dict[str, Any]:
+    if isinstance(model_artifact, dict) and "models" in model_artifact:
+        return model_artifact
+    return {
+        "format_version": 1,
+        "selected_model_name": "tfidf_logreg",
+        "models": {"tfidf_logreg": model_artifact},
+        "ensembles": {},
+    }
+
+
 def explain_text(model, text: str, top_n: int = 8) -> list[str]:
     vectorizer = model.named_steps["tfidf"]
     classifier = model.named_steps["clf"]
     features = vectorizer.transform([text])
-    coefs = classifier.coef_[0]
     nz = features.nonzero()[1]
     if len(nz) == 0:
         return []
 
+    if hasattr(classifier, "coef_"):
+        weights = classifier.coef_[0]
+    elif hasattr(classifier, "feature_importances_"):
+        weights = classifier.feature_importances_
+    else:
+        return []
+
     names = vectorizer.get_feature_names_out()
     scored = sorted(
-        ((names[i], features[0, i] * coefs[i]) for i in nz),
+        ((names[i], features[0, i] * weights[i]) for i in nz),
         key=lambda item: abs(item[1]),
         reverse=True,
     )
@@ -73,15 +97,57 @@ def suspicious_flags(text: str) -> list[str]:
     return flags
 
 
-def ml_prediction(model, text: str) -> dict[str, Any]:
-    probability = float(model.predict_proba(pd.Series([text]))[0, 1])
+def predict_with_pipeline(model, text: str) -> float:
+    return float(model.predict_proba(pd.Series([text]))[0, 1])
+
+
+def ml_prediction(model_artifact: dict[str, Any], text: str) -> dict[str, Any]:
+    models = model_artifact["models"]
+    selected_model_name = model_artifact.get("selected_model_name", "tfidf_logreg")
+    ensembles = model_artifact.get("ensembles", {})
+    selected_ensemble = ensembles.get(selected_model_name, {})
+    raw_component_scores: dict[str, float] = {}
+
+    for model_name, model in models.items():
+        raw_component_scores[model_name] = predict_with_pipeline(model, text)
+
+    if selected_ensemble.get("enabled"):
+        weights = selected_ensemble.get("weights", {})
+        probability = 0.0
+        for model_name in selected_ensemble.get("base_models", []):
+            if model_name in models:
+                probability += float(weights.get(model_name, 0.0)) * raw_component_scores[model_name]
+        explanation_model = models.get("tfidf_logreg")
+    else:
+        probability = predict_with_pipeline(models[selected_model_name], text)
+        explanation_model = models[selected_model_name]
+
     return {
-        "label": human_label(probability),
-        "fake_probability": round(probability, 4),
-        "confidence_band": confidence_band(probability),
-        "top_terms": explain_text(model, text),
+        "model_name": selected_model_name,
+        "model_label": MODEL_LABELS.get(selected_model_name, selected_model_name),
+        "fake_probability": round(float(probability), 4),
+        "label": human_label(float(probability)),
+        "confidence_band": confidence_band(float(probability)),
+        "top_terms": explain_text(explanation_model, text) if explanation_model else [],
         "flags": suspicious_flags(text),
+        "component_scores": {
+            model_name: round(score, 4) for model_name, score in raw_component_scores.items()
+        },
+        "ensemble_weights": selected_ensemble.get("weights", {}),
     }
+
+
+def resolve_model_source(model_name: str) -> tuple[str, bool]:
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        return model_name, False
+
+    try:
+        local_path = snapshot_download(model_name, local_files_only=True)
+        return local_path, True
+    except Exception:
+        return model_name, False
 
 
 @lru_cache(maxsize=2)
@@ -95,8 +161,13 @@ def load_llm(model_name: str):
         ) from exc
 
     token = os.getenv("HF_TOKEN")
+    model_source, is_local_snapshot = resolve_model_source(model_name)
+    load_kwargs: dict[str, Any] = {
+        "token": token,
+        "local_files_only": is_local_snapshot,
+    }
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=token)
+    tokenizer = AutoTokenizer.from_pretrained(model_source, **load_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -104,10 +175,10 @@ def load_llm(model_name: str):
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        token=token,
+        model_source,
         dtype=dtype,
         device_map=device_map,
+        **load_kwargs,
     )
     return tokenizer, model
 
@@ -198,6 +269,8 @@ def score_with_llm(text: str, model_name: str) -> dict[str, Any]:
         max_new_tokens=120,
         do_sample=False,
         temperature=None,
+        top_p=None,
+        top_k=None,
         pad_token_id=tokenizer.eos_token_id,
     )
     generated = output[0][inputs["input_ids"].shape[-1] :]
@@ -215,17 +288,27 @@ def compare_models(ml_result: dict[str, Any], llm_result: dict[str, Any]) -> dic
     if agree and difference <= 0.2:
         summary = "Both models agree strongly."
         final_label = ml_result["label"]
+        final_decider = "shared"
     elif agree:
         summary = "Both models point in the same direction, but with different confidence."
         final_label = ml_result["label"]
+        final_decider = "shared"
+    elif difference >= LLM_OVERRIDE_GAP:
+        summary = (
+            "The ML model and LLM disagree sharply, so the LLM overrides the final verdict."
+        )
+        final_label = llm_result["label"]
+        final_decider = "llm_override"
     else:
         summary = "The ML model and LLM disagree. Treat this review as a manual-review case."
         final_label = "Manual review recommended"
+        final_decider = "manual_review"
 
     return {
         "agreement": agree,
         "probability_gap": round(difference, 4),
         "final_label": final_label,
+        "final_decider": final_decider,
         "summary": summary,
     }
 
@@ -272,6 +355,7 @@ def print_side_by_side_comparison(
         )
     print(divider)
     print(f"Final label: {comparison['final_label']}")
+    print(f"Decision source: {comparison['final_decider']}")
     print(f"Agreement: {comparison['agreement']}")
     print(f"Probability gap: {comparison['probability_gap']:.4f}")
     print(f"Summary: {comparison['summary']}")
@@ -301,13 +385,24 @@ def main() -> None:
         if not review_text:
             raise SystemExit("No review text was provided.")
 
-    model = joblib.load(MODEL_PATH)
-    ml_result = ml_prediction(model, review_text)
+    model_artifact = unpack_model_artifact(joblib.load(MODEL_PATH))
+    ml_result = ml_prediction(model_artifact, review_text)
 
     print("ML model prediction")
+    print(f"  Model: {ml_result['model_label']}")
     print(f"  Label: {ml_result['label']}")
     print(f"  Fake probability: {ml_result['fake_probability']:.4f}")
     print(f"  Confidence: {ml_result['confidence_band']}")
+    if ml_result["component_scores"]:
+        print("  Component model scores:")
+        for model_name, score in ml_result["component_scores"].items():
+            label = MODEL_LABELS.get(model_name, model_name)
+            print(f"    {label}: {score:.4f}")
+    if ml_result["ensemble_weights"]:
+        print("  Ensemble weights:")
+        for model_name, weight in ml_result["ensemble_weights"].items():
+            label = MODEL_LABELS.get(model_name, model_name)
+            print(f"    {label}: {weight:.2f}")
     if ml_result["top_terms"]:
         print("  Top contributing terms:")
         for item in ml_result["top_terms"]:
@@ -338,7 +433,9 @@ def main() -> None:
             print("LLM prediction")
             print("  The LLM comparison could not run.")
             print(f"  Reason: {exc}")
-            print("  Tip: ensure dependencies are installed and that the model is either cached locally or can be downloaded from Hugging Face on first run.")
+            print(
+                "  Tip: ensure dependencies are installed and that the model is either cached locally or can be downloaded from Hugging Face on first run."
+            )
 
     report_path = save_report(report)
     print(f"Saved report to: {report_path.name}")

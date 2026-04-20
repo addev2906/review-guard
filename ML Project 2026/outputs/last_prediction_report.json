@@ -1,33 +1,46 @@
 {
-  "review_text": "The product is great. it is cheap, easy to use and helps in daily chores.",
+  "review_text": "this product is amazing. quality is nice and price is also attractive.",
   "ml_model": {
-    "label": "Likely original / genuine",
-    "fake_probability": 0.2767,
-    "confidence_band": "moderate confidence",
+    "model_name": "weighted_ensemble_optimized",
+    "model_label": "Weighted Ensemble Fusion (Validation-Optimized)",
+    "fake_probability": 0.5059,
+    "label": "Borderline / uncertain",
+    "confidence_band": "uncertain",
     "top_terms": [
-      "cheap (-0.539)",
-      "is great (+0.533)",
-      "in (-0.439)",
-      "helps (-0.389)",
-      "to (-0.351)",
-      "daily (-0.275)",
-      "to use (+0.269)",
-      "and (-0.256)"
+      "also (+0.519)",
+      "is also (+0.411)",
+      "is nice (+0.393)",
+      "price is (-0.329)",
+      "price (-0.301)",
+      "nice and (-0.281)",
+      "quality is (+0.248)",
+      "and (-0.244)"
     ],
-    "flags": []
+    "flags": [
+      "contains promotional superlatives"
+    ],
+    "component_scores": {
+      "tfidf_logreg": 0.5284,
+      "tfidf_xgboost": 0.4386
+    },
+    "ensemble_weights": {
+      "tfidf_xgboost": 0.25,
+      "tfidf_logreg": 0.75
+    }
   },
   "llm_model": {
     "label": "Likely original / genuine",
     "fake_probability": 0.05,
     "confidence_band": "high confidence",
-    "reason": "Detailed positive feedback without any suspicious elements.",
-    "raw_output": "{\"verdict\":\"GENUINE\",\"confidence\":0.95,\"reason\":\"Detailed positive feedback without any suspicious elements.\"}",
+    "reason": "Detailed positive feedback without obvious signs of manipulation.",
+    "raw_output": "{\"verdict\":\"GENUINE\",\"confidence\":0.95,\"reason\":\"Detailed positive feedback without obvious signs of manipulation.\"}",
     "model_name": "Qwen/Qwen2.5-1.5B-Instruct"
   },
   "comparison": {
-    "agreement": true,
-    "probability_gap": 0.2267,
+    "agreement": false,
+    "probability_gap": 0.4559,
     "final_label": "Likely original / genuine",
-    "summary": "Both models point in the same direction, but with different confidence."
+    "final_decider": "llm_override",
+    "summary": "The ML model and LLM disagree sharply, so the LLM overrides the final verdict."
   }
 }

@@ -2,12 +2,14 @@
 
 ## Overview
 
-This project detects whether a product review is likely original or computer-generated. It combines a classical machine learning classifier for fast, reproducible scoring with an optional instruction-tuned language model for qualitative comparison.
+This project detects whether a product review is likely original or computer-generated. It trains and compares multiple classical ML candidates:
 
-The system is designed around two goals:
+- `TF-IDF + Logistic Regression`
+- `TF-IDF + XGBoost`
+- `Weighted Ensemble Fusion (0.60 XGBoost + 0.40 LogReg)` — fixed weights
+- `Weighted Ensemble Fusion (Validation-Optimized)` — grid-searched weights
 
-- strong baseline performance on the provided dataset
-- an inference flow that can be extended into an application or browser extension
+The training script evaluates all candidates on the same validation split, saves metrics for each candidate, and stores the best-performing option as the active classifier used by inference.
 
 ## Problem Definition
 
@@ -36,29 +38,52 @@ Dataset summary used by the training pipeline:
 - Total rows: `40,432`
 - Balanced classes: `20,216` genuine and `20,216` fake
 
+## Project Structure
+
+```
+ML Project 2026/
+├── train_model.py                         # Model training and evaluation pipeline
+├── predict_review.py                      # Inference script with ML + LLM comparison
+├── build_notebook.py                      # Generates the Jupyter notebook
+├── requirements.txt                       # Python dependencies
+├── fake_reviews_dataset.csv               # Dataset
+├── fake_review_detection_improved.ipynb   # Auto-generated notebook
+├── models/
+│   └── fake_review_detector.joblib        # Saved model artifact (format v3)
+├── outputs/
+│   ├── metrics.json                       # Evaluation metrics for all candidates
+│   ├── test_predictions.csv               # Test set predictions from the selected model
+│   ├── confusion_matrix.png               # Confusion matrix plot
+│   ├── roc_curve.png                      # ROC curve plot
+│   └── last_prediction_report.json        # Most recent inference report
+└── README.md
+```
+
 ## System Architecture
 
 The project has two inference layers.
 
 ### 1. ML Classification Layer
 
-Implemented in [train_model.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/train_model.py>) and [predict_review.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/predict_review.py>).
+Implemented in `train_model.py`.
 
-Pipeline:
+Training flow:
 
 1. Load and clean the dataset
 2. Normalize column names
 3. Remove missing or empty review text
-4. Map labels to binary targets
+4. Map labels to binary targets (`CG` → 1, `OR` → 0)
 5. Split data into train, validation, and test sets
-6. Convert text into TF-IDF features
-7. Train a Logistic Regression classifier
-8. Evaluate on validation and test data
-9. Save the trained model and evaluation outputs
+6. Train `TF-IDF + Logistic Regression`
+7. Train `TF-IDF + XGBoost`
+8. Build weighted ensemble candidates from both model outputs
+9. Grid-search the best ensemble weights on validation data (in 0.05 steps)
+10. Evaluate all candidates on validation and test data
+11. Select the best validation model and save it with evaluation outputs
 
 ### 2. LLM Comparison Layer
 
-Implemented in [predict_review.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/predict_review.py>).
+Implemented in `predict_review.py`.
 
 This layer sends the custom review to an open-source instruction model:
 
@@ -70,45 +95,93 @@ The LLM is not used for model training. It is used only at inference time as a s
 - LLM label
 - fake probability gap
 - final agreement summary
+- final decision source (shared, LLM override, or manual review)
 
-## ML Model
+## ML Models
 
-Model:
+### TF-IDF Features
 
-- `TfidfVectorizer`
-- `LogisticRegression`
+Both models start with TF-IDF text features built from the `text_` column.
 
-Reason for selection:
+Logistic Regression pipeline:
 
-- strong baseline for text classification
-- efficient training and inference
-- easy to interpret
-- robust on medium-sized labeled datasets
-- much simpler and more reproducible than a heavier ensemble
-
-### Feature Extraction
-
-The review text is transformed using TF-IDF with:
-
-- word unigrams and bigrams
+- `ngram_range=(1, 2)`
 - `max_features=8000`
 - `min_df=3`
 - `sublinear_tf=True`
 
-This allows the model to capture both common lexical patterns and meaningful short phrases such as repeated promotional wording.
+XGBoost pipeline:
 
-### Classifier
+- `ngram_range=(1, 2)`
+- `max_features=12000`
+- `min_df=2`
+- `sublinear_tf=True`
 
-The classifier is Logistic Regression with:
+### Logistic Regression
+
+The linear baseline uses:
 
 - `max_iter=1000`
 - `random_state=42`
 
-The output probability is used for:
+This remains the most interpretable model in the project and powers term-level explanations through coefficient weights.
 
-- final class prediction
-- confidence band generation
-- ML vs LLM comparison
+### XGBoost
+
+The boosted tree model uses:
+
+- `n_estimators=250`
+- `max_depth=6`
+- `learning_rate=0.08`
+- `subsample=0.9`
+- `colsample_bytree=0.9`
+- `reg_lambda=1.0`
+- `eval_metric=logloss`
+
+This gives the project a stronger non-linear alternative while still working directly on sparse TF-IDF features.
+
+### Weighted Ensemble Fusion
+
+The project also supports score-level fusion between the two base models:
+
+- **Fixed fusion**: `0.60 × XGBoost + 0.40 × Logistic Regression`
+- **Optimized fusion**: validation-searched weights in `0.05` steps across the full `[0, 1]` range
+
+All four candidates are evaluated side by side on the same validation and test sets. The candidate with the best validation AUC (then F1, then accuracy as tiebreakers) is selected automatically.
+
+## Model Performance
+
+The current saved model is **Weighted Ensemble Fusion (Validation-Optimized)** with weights `0.25 × XGBoost + 0.75 × Logistic Regression`.
+
+### Selected Model — Test Set Results
+
+| Metric | Value |
+|---|---|
+| **Accuracy** | 93.55% |
+| **F1-score** | 93.49% |
+| **ROC-AUC** | 98.33% |
+| Genuine precision / recall | 92.70% / 94.56% |
+| Fake precision / recall | 94.45% / 92.55% |
+
+### All Candidate Comparison — Validation Set
+
+| Model | Accuracy | F1 | AUC |
+|---|---|---|---|
+| TF-IDF + Logistic Regression | 92.96% | 92.99% | 97.98% |
+| TF-IDF + XGBoost | 89.87% | 89.71% | 96.76% |
+| Weighted Ensemble Fixed (0.60/0.40) | 92.03% | 91.95% | 97.80% |
+| **Weighted Ensemble Optimized (0.25/0.75)** | **92.94%** | **92.93%** | **98.05%** |
+
+### All Candidate Comparison — Test Set
+
+| Model | Accuracy | F1 | AUC |
+|---|---|---|---|
+| TF-IDF + Logistic Regression | 93.55% | 93.50% | 98.34% |
+| TF-IDF + XGBoost | 90.06% | 89.85% | 96.75% |
+| Weighted Ensemble Fixed (0.60/0.40) | 92.73% | 92.62% | 97.98% |
+| **Weighted Ensemble Optimized (0.25/0.75)** | **93.55%** | **93.49%** | **98.33%** |
+
+> **Note:** The optimized ensemble converged to weights that heavily favor Logistic Regression (0.75) over XGBoost (0.25) on this dataset. Logistic Regression alone performs nearly identically, confirming it is the stronger base model for this text-only classification task.
 
 ## Data Split Strategy
 
@@ -126,68 +199,91 @@ The test set is held out from training and used only for final evaluation.
 
 Training script:
 
-- [train_model.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/train_model.py>)
+- `train_model.py`
 
 Saved outputs:
 
-- model: `models/fake_review_detector.joblib`
+- model artifact: `models/fake_review_detector.joblib`
 - metrics: `outputs/metrics.json`
 - test predictions: `outputs/test_predictions.csv`
 - confusion matrix: `outputs/confusion_matrix.png`
 - ROC curve: `outputs/roc_curve.png`
 
-### Performance
+### Model Artifact Format (v3)
 
-Current saved test results:
+The saved `.joblib` artifact contains:
 
-- Accuracy: `0.9355`
-- F1-score: `0.9350`
-- ROC-AUC: `0.9834`
+```python
+{
+    "format_version": 3,
+    "selected_model_name": "weighted_ensemble_optimized",
+    "models": {
+        "tfidf_logreg": <trained Pipeline>,
+        "tfidf_xgboost": <trained Pipeline>,
+    },
+    "ensembles": {
+        "weighted_ensemble_fixed": {
+            "enabled": True,
+            "weights": {"tfidf_xgboost": 0.60, "tfidf_logreg": 0.40},
+            "base_models": ["tfidf_xgboost", "tfidf_logreg"],
+        },
+        "weighted_ensemble_optimized": {
+            "enabled": True,
+            "weights": {"tfidf_xgboost": 0.25, "tfidf_logreg": 0.75},
+            "base_models": ["tfidf_xgboost", "tfidf_logreg"],
+        },
+    },
+}
+```
 
-Class-wise performance from the test set:
+### Metrics JSON
 
-- Genuine precision: `0.9292`
-- Genuine recall: `0.9430`
-- Fake precision: `0.9421`
-- Fake recall: `0.9281`
+`outputs/metrics.json` includes:
 
-These results indicate strong and balanced performance on the provided dataset.
+- dataset split sizes
+- available candidate models
+- selected saved model
+- validation and test metrics for each candidate
+- classification report for each candidate
+- ensemble weights for ensemble candidates
 
 ## Inference Flow
-
-Custom review inference is handled in [predict_review.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/predict_review.py>).
 
 Default flow:
 
 1. Accept review text from the command line or interactive input
-2. Run the saved ML model
-3. Extract influential TF-IDF terms
-4. Generate simple suspicious-writing flags
-5. Run the LLM comparison layer unless skipped
-6. Print both results side by side
-7. Save the latest report to `outputs/last_prediction_report.json`
+2. Load the saved model artifact
+3. Run the selected ML model
+4. If the selected model is an ensemble, combine component probabilities with the saved weights
+5. Extract influential TF-IDF terms from the Logistic Regression branch for interpretability
+6. Generate simple suspicious-writing flags (exclamation use, all-caps, promotional words, short reviews)
+7. Run the LLM comparison layer unless skipped
+8. Compare ML and LLM outputs and decide whether the result is shared, LLM-overridden, or manual-review
+9. Save the latest report to `outputs/last_prediction_report.json`
 
-### Suspicious-Writing Heuristics
+### Inference Output Example
 
-The script adds lightweight rule-based indicators for interpretability:
+```
+ML model prediction
+  Model: Weighted Ensemble Fusion (Validation-Optimized)
+  Label: Likely original / genuine
+  Fake probability: 0.2261
+  Confidence: moderate confidence
+  Component model scores:
+    TF-IDF + Logistic Regression: 0.1606
+    TF-IDF + XGBoost: 0.4228
+  Ensemble weights:
+    TF-IDF + XGBoost: 0.25
+    TF-IDF + Logistic Regression: 0.75
+  Top contributing terms:
+    at (-0.357)
+    after (-0.283)
+    is bit (+0.248)
+```
 
-- heavy exclamation use
-- multiple all-caps words
-- promotional superlatives
-- very short review length
+### Backward Compatibility
 
-These are not the primary classifier. They are used to highlight patterns that may be useful during manual review.
-
-## Project Structure
-
-- `fake_reviews_dataset.csv`: source dataset
-- `train_model.py`: training and evaluation pipeline
-- `predict_review.py`: custom review scoring and ML vs LLM comparison
-- `build_notebook.py`: notebook generator
-- `fake_review_detection_improved.ipynb`: generated notebook version
-- `models/`: saved trained model artifacts
-- `outputs/`: metrics, charts, and prediction reports
-- `requirements.txt`: dependencies
+`predict_review.py` is backward-compatible with older single-pipeline model files (format v1) and also supports the current multi-model artifact format (format v3).
 
 ## Installation
 
@@ -195,7 +291,23 @@ These are not the primary classifier. They are used to highlight patterns that m
 python -m pip install -r requirements.txt
 ```
 
-For the current LLM comparison path, `transformers`, `torch`, `accelerate`, and related runtime dependencies must be available locally.
+### Dependencies
+
+| Package | Purpose |
+|---|---|
+| `pandas` | Data loading and manipulation |
+| `scikit-learn` | TF-IDF, Logistic Regression, metrics, pipelines |
+| `xgboost` | XGBoost classifier |
+| `matplotlib` | Plotting (confusion matrix, ROC) |
+| `seaborn` | Plot styling |
+| `joblib` | Model serialization |
+| `nbformat` | Notebook generation |
+| `transformers` | LLM inference (Qwen model) |
+| `torch` | LLM runtime |
+| `accelerate` | LLM device management |
+| `protobuf` | Serialization support |
+
+For the current LLM comparison path, `transformers`, `torch`, `accelerate`, and related runtime dependencies must be available locally. For the boosted baseline, `xgboost` is also required.
 
 ## Usage
 
@@ -205,13 +317,13 @@ For the current LLM comparison path, `transformers`, `torch`, `accelerate`, and 
 python train_model.py
 ```
 
+This trains the two base models, evaluates the fixed and optimized weighted ensembles, then saves the best validation candidate.
+
 ### Run interactive custom testing
 
 ```powershell
 python predict_review.py
 ```
-
-This runs both the ML model and the default LLM comparison.
 
 ### Run custom testing with direct text input
 
@@ -219,12 +331,16 @@ This runs both the ML model and the default LLM comparison.
 python predict_review.py --text "This product arrived on time and works well."
 ```
 
-This also runs both the ML model and the default LLM comparison.
-
-### Run ML-only inference
+### Run ML-only inference (skip LLM)
 
 ```powershell
 python predict_review.py --skip-llm
+```
+
+### Use a different LLM model
+
+```powershell
+python predict_review.py --llm-model "Qwen/Qwen2.5-3B-Instruct"
 ```
 
 ### Build the notebook
@@ -235,21 +351,50 @@ python build_notebook.py
 
 ## Notebook
 
-The notebook is generated by [build_notebook.py](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/build_notebook.py>) and saved as [fake_review_detection_improved.ipynb](</c:/Users/Harshal/OneDrive/ドキュメント/ML Project 2026/fake_review_detection_improved.ipynb>). It presents:
+The notebook is generated by `build_notebook.py`. It presents:
 
-- dataset loading
-- exploratory summaries
-- model training
-- evaluation
-- visualization
-- sample review testing
+- dataset loading and cleaning
+- exploratory data analysis (label distribution, review length histogram)
+- training both base models (Logistic Regression and XGBoost)
+- model comparison table with validation and test metrics
+- classification report
+- confusion matrix and ROC curve visualization
+- saving the model artifact and metrics
+- sample review predictions
+
+## Suspicious Writing Flags
+
+The inference script applies rule-based heuristic flags independent of the ML model:
+
+| Flag | Trigger |
+|---|---|
+| Heavy exclamation use | ≥ 3 exclamation marks |
+| Multiple all-caps words | ≥ 2 words that are fully uppercase (length > 2) |
+| Contains promotional superlatives | Matches terms like "best", "amazing", "must buy", etc. |
+| Very short review | ≤ 4 words |
+
+These flags supplement the ML prediction and are displayed as warnings in the inference output.
+
+## ML + LLM Agreement Logic
+
+When both the ML model and LLM produce predictions:
+
+| Condition | Final Decision |
+|---|---|
+| Both agree, probability gap ≤ 0.20 | Shared label (strong agreement) |
+| Both agree, probability gap > 0.20 | Shared label (same direction, different confidence) |
+| Disagree, gap ≥ 0.40 | LLM overrides the final verdict |
+| Disagree, gap < 0.40 | Manual review recommended |
+
+The override gap threshold is `0.40` (configurable in `predict_review.py` as `LLM_OVERRIDE_GAP`).
 
 ## Limitations
 
-- The ML model is trained only on the provided dataset, so generalization depends on how closely new reviews match the dataset distribution.
+- The ML models are trained only on the provided dataset, so generalization depends on how closely new reviews match the dataset distribution.
 - Promotional or exaggerated text is not always fake, so suspicious language alone should not be treated as proof.
-- The LLM comparison is advisory and may disagree with the trained classifier.
-- Local LLM inference depends on installed dependencies and available system resources.
+- The LLM comparison depends on `transformers`, `torch`, and access to a cached or downloadable Hugging Face model.
+- If `xgboost` is not installed, the training script falls back to training the Logistic Regression pipeline only.
+- If the LLM cannot start, the script falls back gracefully by reporting the LLM error and still saving the ML result report.
 
 ## Extension Roadmap
 
@@ -258,13 +403,9 @@ This project can be extended into a browser extension or web application.
 Recommended next architecture:
 
 1. Keep the trained ML model as the fast scoring engine
-2. Expose inference through a small backend API
+2. Expose inference through a small backend API (e.g., Flask)
 3. Use the LLM as an optional secondary review layer
 4. Build a browser extension UI that sends review text to the backend
-5. Return:
-   ML score
-   LLM score
-   agreement summary
-   suspicious flags
-
-This separation is more practical than embedding a local LLM directly inside an extension.
+5. Return the ML score, model name, LLM score, agreement summary, and suspicious flags
+6. Add batch scanning for all reviews on a product page
+7. Add company-wide review aggregation and trust scoring
